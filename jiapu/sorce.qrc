@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/">
+        <file>logo.png</file>
+        <file>pass1.png</file>
+        <file>user1.png</file>
+        <file>bgp2.jpg</file>
+        <file>bgp3.jpg</file>
+        <file>bgp4.jpg</file>
+        <file>bgp5.jpg</file>
+        <file>familytreedata.txt</file>
+    </qresource>
+</RCC>
