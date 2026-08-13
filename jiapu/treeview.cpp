@@ -131,6 +131,7 @@ private:
 
 class TreeScene : public QGraphicsScene
 {
+    Q_OBJECT
 public:
     // 家庭单元（男性成员 + 配偶 + 子单元）
     struct Unit
@@ -412,6 +413,16 @@ void TreeView::centerOnNode(const QString& name)
     const QPointF pos = m_scene->nodePos(name);
     if (!pos.isNull())
         centerOn(pos);
+}
+
+void TreeView::showEvent(QShowEvent* event)
+{
+    QGraphicsView::showEvent(event);
+    // 构造时视口尺寸尚未确定，首次显示时按真实视口重新适配整棵树
+    if (m_firstShow && m_scene && m_scene->sceneRect().width() > 0) {
+        m_firstShow = false;
+        fitInView(m_scene->sceneRect().adjusted(-30, -30, 30, 30), Qt::KeepAspectRatio);
+    }
 }
 
 void TreeView::wheelEvent(QWheelEvent* event)

@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
 qt_standard_project_setup(REQUIRES 6.5)
+set(CMAKE_AUTORCC ON)   # qt_standard_project_setup 未启用资源编译，显式开启
 
 # ---------------- GUI 程序 ----------------
 qt_add_executable(jiapu WIN32
@@ -14,6 +15,9 @@ qt_add_executable(jiapu WIN32
     familytree.h familytree.cpp
     login.h login.cpp login.ui
     mainwindow.h mainwindow.cpp
+    treeview.h treeview.cpp
+    chartwidget.h chartwidget.cpp
+    memberdialog.h memberdialog.cpp
     sorce.qrc
 )
 target_link_libraries(jiapu PRIVATE Qt6::Widgets)
@@ -30,3 +34,21 @@ target_compile_definitions(tst_datalayer PRIVATE
     SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 add_test(NAME datalayer COMMAND tst_datalayer)
+
+# ---------------- UI 冒烟测试（离屏渲染截图） ----------------
+qt_add_executable(tst_ui
+    familytree.h familytree.cpp
+    login.h login.cpp login.ui
+    mainwindow.h mainwindow.cpp
+    treeview.h treeview.cpp
+    chartwidget.h chartwidget.cpp
+    memberdialog.h memberdialog.cpp
+    tests/tst_ui.cpp
+    sorce.qrc
+)
+target_link_libraries(tst_ui PRIVATE Qt6::Test Qt6::Widgets)
+target_include_directories(tst_ui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME ui COMMAND tst_ui)
+set_tests_properties(ui PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)

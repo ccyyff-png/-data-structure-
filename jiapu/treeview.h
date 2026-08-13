@@ -44,6 +44,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     TreeScene* m_scene = nullptr;
@@ -51,6 +52,7 @@ private:
     QPoint m_pressPos;               // 按下位置（视图坐标）
     QPoint m_panStart;               // 平移起始（滚动条位置）
     QString m_selectedName;          // 当前选中成员
+    bool m_firstShow = true;         // 首次显示时重新适配视图
 };
 
 #endif // TREEVIEW_H

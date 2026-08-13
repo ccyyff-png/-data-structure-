@@ -1,5 +1,12 @@
 #include "mainwindow.h"
 #include "login.h"
+#include "treeview.h"
+#include "chartwidget.h"
+#include "memberdialog.h"
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QInputDialog>
+#include <algorithm>
 #include <QListWidget>
 #include <QStackedWidget>
 #include <QLineEdit>
@@ -118,31 +125,93 @@ void MainWindow::setupUi()
                      QStringLiteral("成员管理"), QStringLiteral("二叉树结构")});
     m_nav->setCurrentRow(0);
 
-    // ---- 页面 1：家谱树（Phase 5 填充 TreeView） ----
+    // ---- 页面 1：家谱树（QGraphicsView 自绘树形图 + 详情面板） ----
     m_treePage = new QWidget;
     {
         auto* lay = new QHBoxLayout(m_treePage);
-        auto* placeholder = new QLabel("家谱树可视化（建设中）");
-        placeholder->setAlignment(Qt::AlignCenter);
-        lay->addWidget(placeholder);
+        m_treeView = new TreeView;
+        m_detailPanel = new QPlainTextEdit;
+        m_detailPanel->setReadOnly(true);
+        m_detailPanel->setFixedWidth(300);
+        QFont detailFont("Microsoft YaHei UI", 10);
+        m_detailPanel->setFont(detailFont);
+        lay->addWidget(m_treeView, 1);
+        lay->addWidget(m_detailPanel);
+        connect(m_treeView, &TreeView::memberSelected, this, &MainWindow::onMemberSelected);
+        connect(m_treeView, &TreeView::memberDoubleClicked, this, &MainWindow::onMemberSelected);
     }
 
-    // ---- 页面 2：统计分析（Phase 6 填充图表） ----
+    // ---- 页面 2：统计分析（KPI 卡片 + 自绘图表） ----
     m_statsPage = new QWidget;
     {
         auto* lay = new QVBoxLayout(m_statsPage);
-        auto* placeholder = new QLabel("统计分析（建设中）");
-        placeholder->setAlignment(Qt::AlignCenter);
-        lay->addWidget(placeholder);
+        // KPI 卡片行
+        auto* kpiRow = new QHBoxLayout;
+        const auto makeCard = [](QLabel*& value, const QString& caption) {
+            auto* card = new QFrame;
+            card->setObjectName("kpiCard");
+            auto* v = new QVBoxLayout(card);
+            value = new QLabel("—");
+            value->setObjectName("kpiValue");
+            value->setAlignment(Qt::AlignCenter);
+            auto* cap = new QLabel(caption);
+            cap->setObjectName("kpiCaption");
+            cap->setAlignment(Qt::AlignCenter);
+            v->addWidget(value);
+            v->addWidget(cap);
+            return card;
+        };
+        kpiRow->addWidget(makeCard(m_kpiTotal, "总人数"));
+        kpiRow->addWidget(makeCard(m_kpiGen, "总代数"));
+        kpiRow->addWidget(makeCard(m_kpiBranch, "最长支系"));
+        kpiRow->addWidget(makeCard(m_kpiBusiest, "子女最多"));
+        // 图表行
+        auto* chartRow = new QHBoxLayout;
+        m_chartGen = new BarChartWidget;
+        m_chartChildren = new BarChartWidget;
+        m_chartBranches = new HBarChartWidget;
+        chartRow->addWidget(m_chartGen, 1);
+        chartRow->addWidget(m_chartChildren, 1);
+        chartRow->addWidget(m_chartBranches, 1);
+        // 最长支系路径条
+        m_longestPathLabel = new QLabel;
+        m_longestPathLabel->setObjectName("pathLabel");
+        m_longestPathLabel->setWordWrap(true);
+        lay->addLayout(kpiRow);
+        lay->addLayout(chartRow, 1);
+        lay->addWidget(m_longestPathLabel);
     }
 
-    // ---- 页面 3：成员管理（Phase 7 填充表格） ----
+    // ---- 页面 3：成员管理（表格 + 增/删/改名） ----
     m_memberPage = new QWidget;
     {
         auto* lay = new QVBoxLayout(m_memberPage);
-        auto* placeholder = new QLabel("成员管理（建设中）");
-        placeholder->setAlignment(Qt::AlignCenter);
-        lay->addWidget(placeholder);
+        auto* btnRow = new QHBoxLayout;
+        auto* btnAdd = new QPushButton("添加成员");
+        auto* btnDelete = new QPushButton("删除成员");
+        auto* btnRename = new QPushButton("重命名成员");
+        btnRow->addWidget(btnAdd);
+        btnRow->addWidget(btnDelete);
+        btnRow->addWidget(btnRename);
+        btnRow->addStretch();
+        m_memberTable = new QTableWidget;
+        m_memberTable->setColumnCount(7);
+        m_memberTable->setHorizontalHeaderLabels(
+            {QStringLiteral("姓名"), QStringLiteral("性别"), QStringLiteral("代数"),
+             QStringLiteral("父亲"), QStringLiteral("母亲"), QStringLiteral("配偶"),
+             QStringLiteral("子女数")});
+        m_memberTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        m_memberTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        m_memberTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_memberTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_memberTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_memberTable->verticalHeader()->setVisible(false);
+        m_memberTable->setAlternatingRowColors(true);
+        lay->addLayout(btnRow);
+        lay->addWidget(m_memberTable, 1);
+        connect(btnAdd, &QPushButton::clicked, this, &MainWindow::onAddMember);
+        connect(btnDelete, &QPushButton::clicked, this, &MainWindow::onDeleteMember);
+        connect(btnRename, &QPushButton::clicked, this, &MainWindow::onRenameMember);
     }
 
     // ---- 页面 4：二叉树结构（课设功能保留） ----
@@ -212,6 +281,11 @@ void MainWindow::applyStyle()
         QStackedWidget > QWidget { background: #f9f9f7; }
         QStatusBar { background: #fcfcfb; border-top: 1px solid #e1e0d9; color: #52514e; }
         QPlainTextEdit { background: white; border: 1px solid #e1e0d9; border-radius: 6px; font-size: 13px; }
+        QFrame#kpiCard { background: white; border: 1px solid #e1e0d9; border-radius: 8px; }
+        QLabel#kpiValue { font-size: 26px; font-weight: bold; color: #0b0b0b; }
+        QLabel#kpiCaption { color: #898781; font-size: 12px; }
+        QLabel#pathLabel { background: white; border: 1px solid #e1e0d9; border-radius: 6px;
+                           padding: 8px 12px; color: #52514e; font-size: 12px; }
     )"));
 }
 
@@ -234,11 +308,10 @@ void MainWindow::onSearch()
         QMessageBox::information(this, "搜索结果", QString("未找到包含「%1」的成员").arg(keyword));
         return;
     }
-    // Phase 5 起改为在树图中高亮并定位；此处先以列表展示
-    QString text = QString("找到 %1 名成员：\n").arg(hits.size());
-    for (const QString& n : hits)
-        text += "· " + n + "\n";
-    QMessageBox::information(this, "搜索结果", text);
+    // 切到家谱树页：高亮全部命中并居中第一个
+    m_nav->setCurrentRow(0);
+    m_treeView->highlightMatches(keyword);
+    statusBar()->showMessage(QString("找到 %1 名成员，已在树图中高亮").arg(hits.size()), 4000);
 }
 
 void MainWindow::showBracketFormat()
@@ -269,25 +342,111 @@ void MainWindow::onBackToLogin()
 
 void MainWindow::onMemberSelected(const QString& name)
 {
-    Q_UNUSED(name)   // Phase 5 接入树图后填充详情面板
+    if (!m_data)
+        return;
+    const MemberInfo* m = FindMember(*m_data, name);
+    if (!m)
+        return;
+    QStringList lines;
+    lines << QString("【%1】").arg(m->name);
+    lines << QString("性别：%1      第 %2 代").arg(m->male ? "男" : "女").arg(m->generation + 1);
+    if (m->isRoot)
+        lines << "身份：家谱始祖";
+    if (!m->father.isEmpty())
+        lines << QString("父亲：%1").arg(m->father);
+    if (!m->mother.isEmpty())
+        lines << QString("母亲：%1").arg(m->mother);
+    lines << QString("配偶：%1").arg(m->spouse.isEmpty() ? "无" : m->spouse);
+    lines << QString("子女：%1").arg(m->children.isEmpty() ? "无" : m->children.join("、"));
+    const QStringList ancestors = FindAllAncestors(*m_data, name);
+    if (ancestors.isEmpty()) {
+        lines << "血亲祖先：无（始祖）";
+    } else {
+        QStringList blood;   // 祖先列表为 父,母,祖父,祖母...，偶数下标为血亲
+        for (int i = 0; i < ancestors.size(); i += 2)
+            blood << ancestors[i];
+        lines << QString("血亲祖先：%1").arg(blood.join(" → "));
+    }
+    lines << QString("后代人数：%1 人").arg(CountDescendants(*m_data, name));
+    m_detailPanel->setPlainText(lines.join("\n"));
 }
 
 void MainWindow::onAddMember()
 {
-    Q_UNUSED(0)      // Phase 7 实现
+    if (!m_data)
+        return;
+    MemberDialog dlg(this);
+    while (dlg.exec() == QDialog::Accepted) {   // 失败时重新弹出，输入得以保留
+        const QString err = AddMember(m_data, dlg.father(), dlg.wife(), dlg.son());
+        if (err.isEmpty()) {
+            QMessageBox::information(this, "提示", "记录已添加！");
+            persistAndRefresh();
+            return;
+        }
+        QMessageBox::warning(this, "提示", err);
+    }
 }
 
 void MainWindow::onDeleteMember()
 {
-    Q_UNUSED(0)      // Phase 7 实现
+    if (!m_data)
+        return;
+    const int row = m_memberTable->currentRow();
+    if (row < 0 || !m_memberTable->item(row, 0)) {
+        QMessageBox::warning(this, "提示", "请先在表格中选择一名成员");
+        return;
+    }
+    const QString name = m_memberTable->item(row, 0)->text();
+    const int n = CountDescendants(*m_data, name);
+    const QString scope = n > 0 ? QString("及其后代共 %1 人，").arg(n + 1) : QString();
+    const auto res = QMessageBox::warning(this, "删除确认",
+        QString("将删除「%1」%2全部相关家谱记录，且不可恢复。确定？").arg(name, scope),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (res != QMessageBox::Yes)
+        return;
+    const QString result = DeleteMember(m_data, name);
+    if (result.startsWith("已删除")) {
+        QMessageBox::information(this, "提示", result);
+        persistAndRefresh();
+    } else {
+        QMessageBox::warning(this, "提示", result);
+    }
 }
 
 void MainWindow::onRenameMember()
 {
-    Q_UNUSED(0)      // Phase 7 实现
+    if (!m_data)
+        return;
+    const int row = m_memberTable->currentRow();
+    if (row < 0 || !m_memberTable->item(row, 0)) {
+        QMessageBox::warning(this, "提示", "请先在表格中选择一名成员");
+        return;
+    }
+    const QString oldName = m_memberTable->item(row, 0)->text();
+    bool ok = false;
+    const QString newName = QInputDialog::getText(this, "重命名成员",
+        QString("将「%1」重命名为：").arg(oldName), QLineEdit::Normal, oldName, &ok);
+    if (!ok)
+        return;
+    const QString err = RenameMember(m_data, oldName, newName);
+    if (!err.isEmpty()) {
+        QMessageBox::warning(this, "提示", err);
+        return;
+    }
+    QMessageBox::information(this, "提示", QString("已将「%1」重命名为「%2」").arg(oldName, newName));
+    persistAndRefresh();
 }
 
 // ---------------- 刷新管线 ----------------
+
+void MainWindow::persistAndRefresh()
+{
+    if (!SaveFamilyData(filepath, *m_data)) {
+        QMessageBox::critical(this, "错误", "保存数据文件失败！");
+        return;
+    }
+    reloadData();
+}
 
 void MainWindow::refreshAll()
 {
@@ -297,5 +456,77 @@ void MainWindow::refreshAll()
     m_statusTotal->setText(QString("  总人数：%1 ｜ ").arg(s.totalMembers));
     m_statusGen->setText(QString("代数：%1 ｜ ").arg(s.generationCount));
     m_statusBranch->setText(QString("最长支系：%1 人 ｜ ").arg(s.longestBranch));
-    // Phase 5+：树图 / 成员表格 / 统计图表随数据刷新
+    // 家谱树图随数据重建
+    if (m_treeView)
+        m_treeView->setData(m_data);
+
+    // KPI 卡片
+    if (m_kpiTotal) {
+        m_kpiTotal->setText(QString::number(s.totalMembers));
+        m_kpiGen->setText(QString::number(s.generationCount));
+        m_kpiBranch->setText(QString::number(s.longestBranch));
+        m_kpiBusiest->setText(QString("%1 ×%2").arg(s.busiestName).arg(s.maxChildren));
+    }
+    // 图表
+    if (m_chartGen) {
+        const QVector<int> perGen = CountPerGeneration(*m_data);
+        QStringList genLabels;
+        QVector<double> genVals;
+        for (int i = 0; i < perGen.size(); ++i) {
+            genLabels << QString("第%1代").arg(i + 1);
+            genVals << perGen[i];
+        }
+        m_chartGen->setData("每代人数", genLabels, genVals, QColor(0x2a, 0x78, 0xd6));
+
+        const QMap<int, int> dist = ChildrenCountDistribution(*m_data);
+        QStringList distLabels;
+        QVector<double> distVals;
+        for (auto it = dist.begin(); it != dist.end(); ++it) {
+            distLabels << QString("%1 个子女").arg(it.key());
+            distVals << it.value();
+        }
+        m_chartChildren->setData("子女数量分布（户）", distLabels, distVals, QColor(0x1b, 0xaf, 0x7a));
+
+        const auto branches = BranchSizes(*m_data, 5);
+        QStringList brNames;
+        QVector<double> brVals;
+        for (const auto& b : branches) {
+            brNames << b.first;
+            brVals << b.second;
+        }
+        m_chartBranches->setData("支系人数 Top5", brNames, brVals);
+
+        const QStringList path = LongestBranchPath(*m_data);
+        m_longestPathLabel->setText(QString("最长支系（%1 人）：%2")
+                                        .arg(path.size())
+                                        .arg(path.join(" → ")));
+    }
+    // 成员表格（按代际+姓名排序）
+    if (m_memberTable) {
+        QVector<const MemberInfo*> list;
+        for (const auto& [name, m] : m_data->members)
+            list.append(&m);
+        std::sort(list.begin(), list.end(), [](const MemberInfo* a, const MemberInfo* b) {
+            return a->generation != b->generation ? a->generation < b->generation
+                                                  : a->name < b->name;
+        });
+        m_memberTable->setRowCount(list.size());
+        for (int row = 0; row < list.size(); ++row) {
+            const MemberInfo* m = list[row];
+            const QStringList cells = {
+                m->name,
+                m->male ? "男" : "女",
+                QString("第 %1 代").arg(m->generation + 1),
+                m->father,
+                m->mother,
+                m->spouse,
+                QString::number(m->children.size())};
+            for (int col = 0; col < cells.size(); ++col) {
+                auto* item = new QTableWidgetItem(cells[col]);
+                if (col != 0)
+                    item->setTextAlignment(Qt::AlignCenter);
+                m_memberTable->setItem(row, col, item);
+            }
+        }
+    }
 }

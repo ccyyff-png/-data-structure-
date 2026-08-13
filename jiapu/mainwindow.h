@@ -41,6 +41,7 @@ private:
     void applyStyle();                  // 全局 QSS 样式
     void reloadData();                  // 重新加载数据文件
     void refreshAll();                  // 统一刷新管线：树图/表格/图表/状态栏
+    void persistAndRefresh();           // 保存到文件并整体刷新（增删改后调用）
     bool copyResourceToFile();          // 从内置资源复制初始数据文件
 
     // ---- 数据 ----
