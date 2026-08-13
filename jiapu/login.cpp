@@ -1,89 +1,94 @@
 #include "login.h"
 #include "ui_login.h"
 #include "mainwindow.h"
-#include <time.h>
 #include <QMessageBox>
-#include <QTimer>  // 新增：包含定时器头文件
+#include <QTimer>
+#include <QLineEdit>
+#include <QCryptographicHash>
+#include <QSettings>
+#include <QCoreApplication>
 
-login::login(QWidget *parent) :
-    QWidget(parent),
-    ui(new Ui::login),
-    bgTimer(new QTimer(this)),  // 新增：初始化定时器
-    currentPicIndex(0)  // 新增：初始化图片索引
+login::login(QWidget *parent)
+    : QWidget(parent)
+    , ui(new Ui::login)
+    , bgTimer(new QTimer(this))   // 父对象 = this，由 Qt 自动释放（修复：原双重释放崩溃）
+    , currentPicIndex(0)
 {
     ui->setupUi(this);
-    this->setWindowTitle("家谱管理系统");
-    //    this->setAttribute(Qt::WA_TranslucentBackground, true);
-    //    this->ui->pushButton->setAttribute(Qt::WA_TranslucentBackground, true);
-    //    this->ui->pushButton_2->setAttribute(Qt::WA_TranslucentBackground, true);
+    setWindowTitle("家谱管理系统");
+    setWindowIcon(QIcon(":/logo.png"));   // 修复：原 "../jiapu/fa.png" 不存在
+
     ui->label_background->setScaledContents(true);
-    
-    // 新增：初始化背景图片列表
-    bgPics << ":/bgp5" << ":/bgp4" << ":/bgp3";
-    
-    // 新增：首次加载图片
+    // 修复：原资源路径缺少 .jpg 扩展名导致背景图加载失败（一直空白）
+    bgPics << ":/bgp5.jpg" << ":/bgp4.jpg" << ":/bgp3.jpg";
     setNextPixmap();
-    
-    // 新增：连接定时器超时信号到更新槽函数（5秒切换一次）
+
     connect(bgTimer, &QTimer::timeout, this, &login::updatePixmap);
-    bgTimer->start(3000);  // 5000毫秒 = 5秒
-    
+    bgTimer->start(3000);   // 每 3 秒切换背景
+
     ui->lineEdit_password->setEchoMode(QLineEdit::EchoMode::Password);
+    // 回车即可登录
+    ui->pushButton->setDefault(true);
+    connect(ui->lineEdit_user, &QLineEdit::returnPressed, this, &login::on_pushButton_clicked);
+    connect(ui->lineEdit_password, &QLineEdit::returnPressed, this, &login::on_pushButton_clicked);
 }
 
 login::~login()
 {
-    delete ui;
-    // 新增：停止并删除定时器
-    bgTimer->stop();
-    delete bgTimer;
+    delete ui;   // bgTimer 是 QObject 子对象，随本窗口自动释放，不再手动 delete（修复双重释放）
 }
 
-// 新增：更新图片的槽函数
-void login::updatePixmap() {
+void login::updatePixmap()
+{
     setNextPixmap();
 }
 
-// 新增：设置下一张图片
-void login::setNextPixmap() {
+void login::setNextPixmap()
+{
     if (!bgPics.isEmpty()) {
         currentPicIndex = (currentPicIndex + 1) % bgPics.size();
-        QPixmap pic(bgPics[currentPicIndex]);
-        ui->label_background->setPixmap(pic);
+        ui->label_background->setPixmap(QPixmap(bgPics[currentPicIndex]));
     }
 }
 
-// 登录按钮
+bool login::verifyPassword(const QString& user, const QString& pwd)
+{
+    QSettings settings(QCoreApplication::applicationDirPath() + "/config.ini", QSettings::IniFormat);
+    if (!settings.contains("auth/user") || !settings.contains("auth/passhash")) {
+        // 首次运行：播种默认账号 admin / 12345，仅保存 SHA-256 哈希
+        settings.setValue("auth/user", "admin");
+        settings.setValue("auth/passhash",
+            QString::fromLatin1(QCryptographicHash::hash("12345", QCryptographicHash::Sha256).toHex()));
+        settings.sync();
+    }
+    const QByteArray inputHash =
+        QCryptographicHash::hash(pwd.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return user == settings.value("auth/user").toString()
+        && QString::fromLatin1(inputHash) == settings.value("auth/passhash").toString();
+}
+
 void login::on_pushButton_clicked()
 {
-    QString userName=this->ui->lineEdit_user->text();
-    QString pwd=this->ui->lineEdit_password->text();
-    if(userName=="admin"&&pwd=="12345")
-    {
-        qDebug()<<"登录成功";
-         QMessageBox::information(this,"提示","登录成功");
-    }
-    else
-    {
-        QMessageBox::critical(this,"提示","登录信息错误！");
+    const QString userName = ui->lineEdit_user->text().trimmed();
+    const QString pwd = ui->lineEdit_password->text();
+    if (!verifyPassword(userName, pwd)) {
+        QMessageBox::critical(this, "提示", "登录信息错误！");
+        ui->lineEdit_password->clear();
+        ui->lineEdit_password->setFocus();
         return;
     }
+
     MainWindow *mainWindow = new MainWindow();
+    mainWindow->setAttribute(Qt::WA_DeleteOnClose);   // 关闭主窗口即销毁，应用随之退出
     mainWindow->setWindowTitle("家谱管理系统");
-    mainWindow->setWindowIcon(QIcon("../jiapu/fa.png"));  //更改页面的图标
+    mainWindow->setWindowIcon(QIcon(":/logo.png"));
     mainWindow->show();
-    this->hide();
+    this->close();   // 修复：关闭登录窗口（原 hide() 导致主窗口关闭后进程残留后台）
 }
 
-// 退出按钮
 void login::on_pushButton_2_clicked()
 {
-    int res = QMessageBox::question(this,"提示","是否要关闭程序？");  //弹出对话框进行确认是否退出
-    if (res == QMessageBox::Yes){
-        this->close();
-        exit(0);
-    }
-    else {
-        this->show();
-    }
+    const int res = QMessageBox::question(this, "提示", "是否要关闭程序？");
+    if (res == QMessageBox::Yes)
+        this->close();   // 修复：正常关闭退出事件循环（原 exit(0) 绕过析构）
 }
