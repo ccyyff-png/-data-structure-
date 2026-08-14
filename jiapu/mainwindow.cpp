@@ -23,6 +23,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QStandardPaths>
 #include <QApplication>
 #include <QFont>
 
@@ -31,11 +32,15 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setupUi();
 
-    // 运行时数据文件：<exe>/jiapu/familytree.txt（不存在或为空时从内置资源恢复）
+    // 运行时数据文件：用户数据目录（%APPDATA%/jiapu），不依赖程序所在路径可写；
+    // 旧版本 <exe>/jiapu/familytree.txt 存在时自动迁移
     const QString appPath = QCoreApplication::applicationDirPath();
-    const QString jiapuDir = appPath + "/jiapu/";
-    QDir().mkpath(jiapuDir);
-    filepath = jiapuDir + "familytree.txt";
+    const QString legacyFile = appPath + "/jiapu/familytree.txt";
+    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir);
+    filepath = dataDir + "/familytree.txt";
+    if (!QFile::exists(filepath) && QFile::exists(legacyFile))
+        QFile::copy(legacyFile, filepath);
 
     bool ok = true;
     QFile destFile(filepath);
@@ -136,6 +141,7 @@ void MainWindow::setupUi()
         auto* lay = new QHBoxLayout(m_treePage);
         m_treeView = new TreeView;
         m_detailPanel = new QPlainTextEdit;
+        m_detailPanel->setObjectName("detailPanel");
         m_detailPanel->setReadOnly(true);
         m_detailPanel->setFixedWidth(300);
         QFont detailFont("Microsoft YaHei UI", 10);

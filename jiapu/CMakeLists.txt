@@ -5,6 +5,11 @@ project(jiapu VERSION 2.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 默认携带调试符号（RelWithDebInfo）：崩溃日志中的 RVA 可用 addr2line 定位源码行
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
 qt_standard_project_setup(REQUIRES 6.5)
 set(CMAKE_AUTORCC ON)   # qt_standard_project_setup 未启用资源编译，显式开启

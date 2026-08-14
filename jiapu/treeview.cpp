@@ -8,6 +8,7 @@
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QScrollBar>
+#include <QToolTip>
 #include <cmath>
 #include <map>
 #include <vector>
@@ -50,15 +51,8 @@ public:
         , m_generation(m.generation)
     {
         setFlag(ItemIsSelectable, false);
-        QString tip = QStringLiteral("%1（%2）\n第 %3 代")
-                          .arg(m.name, m.male ? "男" : "女")
-                          .arg(m.generation + 1);
-        if (!m.spouse.isEmpty())
-            tip += QStringLiteral("\n配偶：%1").arg(m.spouse);
-        if (!m.father.isEmpty())
-            tip += QStringLiteral("\n父亲：%1    母亲：%2").arg(m.father, m.mother);
-        tip += QStringLiteral("\n子女：%1 人").arg(m.children.size());
-        setToolTip(tip);
+        // 注：不设置 QGraphicsItem tooltip（Qt 在 Windows 上存在
+        // 「图形项 tooltip + 视图变换」崩溃缺陷）；成员详情通过点击查看
     }
 
     QRectF boundingRect() const override
@@ -155,6 +149,9 @@ public:
 
     void rebuild(const FamData& data)
     {
+        // 防御：清场前隐藏可能指向即将销毁节点的提示框，并清空选中状态
+        QToolTip::hideText();
+        m_selectedName.clear();
         clear();
         m_units.clear();
         m_husbandItems.clear();
@@ -423,8 +420,10 @@ TreeView::TreeView(QWidget* parent)
     setRenderHint(QPainter::TextAntialiasing);
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
     setResizeAnchor(QGraphicsView::AnchorViewCenter);
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // 注：不使用 ScrollBarAlwaysOff（Qt 存在「隐藏滚动条 + 缩放」同步崩溃缺陷），
+    // 按需显示滚动条，放大后自动出现，兼顾滚动体验
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setDragMode(QGraphicsView::NoDrag);
     setFrameShape(QFrame::NoFrame);
     setBackgroundBrush(BG_COLOR);
@@ -456,13 +455,22 @@ void TreeView::clearHighlights()
 void TreeView::centerOnNode(const QString& name)
 {
     const QPointF pos = m_scene->nodePos(name);
-    if (!pos.isNull())
-        centerOn(pos);
+    if (pos.isNull())
+        return;
+    // 防御：异常变换下先复位，避免 centerOn 在退化矩阵上崩溃
+    if (!qIsFinite(transform().m11()) || !qIsFinite(transform().m22()))
+        resetTransform();
+    centerOn(pos);
 }
 
 QStringList TreeView::overlappingPairs() const
 {
     return m_scene->overlappingPairs();
+}
+
+QPointF TreeView::viewportPosOf(const QString& name) const
+{
+    return mapFromScene(m_scene->nodePos(name));
 }
 
 void TreeView::showEvent(QShowEvent* event)
@@ -478,11 +486,15 @@ void TreeView::showEvent(QShowEvent* event)
 void TreeView::wheelEvent(QWheelEvent* event)
 {
     const double factor = event->angleDelta().y() > 0 ? 1.2 : 1.0 / 1.2;
-    const double current = transform().m11();
+    // 防御：变换矩阵异常（NaN/Inf，如极端视口下的 fitInView）时先复位
+    if (!qIsFinite(transform().m11()) || !qIsFinite(transform().m22()))
+        resetTransform();
+    const double current = qMin(transform().m11(), transform().m22());
     const double next = current * factor;
     if (next < 0.1 || next > 4.0)
         return;
     scale(factor, factor);
+    event->accept();
 }
 
 void TreeView::mousePressEvent(QMouseEvent* event)

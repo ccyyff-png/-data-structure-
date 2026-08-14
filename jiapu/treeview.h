@@ -22,6 +22,7 @@ class PersonNodeItem;
 class TreeView : public QGraphicsView
 {
     Q_OBJECT
+    friend class TestUi;   // 离屏回归测试需直接调用事件处理器
 
 public:
     explicit TreeView(QWidget* parent = nullptr);
@@ -33,6 +34,8 @@ public:
     void clearHighlights();
     // 将指定成员节点居中
     void centerOnNode(const QString& name);
+    // 成员节点在视口中的坐标（测试/定位用）
+    QPointF viewportPosOf(const QString& name) const;
     // 同行卡片重叠对列表（布局回归测试用，正常应为空）
     QStringList overlappingPairs() const;
 

@@ -6,6 +6,9 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QPlainTextEdit>
+#include <QWheelEvent>
+#include <QStandardPaths>
 #include <QImage>
 #include "login.h"
 #include "mainwindow.h"
@@ -23,6 +26,7 @@ private slots:
     void mainWindowPages();
     void searchAndSelect();
     void memberOps();
+    void zoomThenClick();   // 回归：缩放家谱树后点击成员不得崩溃
 
 private:
     // 统计图片中指定颜色（容差内）的像素数
@@ -31,6 +35,8 @@ private:
 
 void TestUi::initTestCase()
 {
+    // 隔离用户数据：AppDataLocation 重定向到临时测试目录，避免读写真实用户数据
+    QStandardPaths::setTestModeEnabled(true);
     QDir().mkpath(QDir::currentPath() + "/screenshots");
 }
 
@@ -122,6 +128,54 @@ void TestUi::searchAndSelect()
     shot.save(QDir::currentPath() + "/screenshots/search_jun.png");
     // 搜索命中节点应出现橙色高亮描边（描边细且抗锯齿，放宽容差统计）
     QVERIFY2(countColor(shot, QColor(0xeb, 0x68, 0x34), 2, 45) > 20, "搜索高亮未渲染");
+}
+
+void TestUi::zoomThenClick()
+{
+    MainWindow w;
+    w.show();
+    QTest::qWait(600);
+
+    auto* treeView = w.findChild<TreeView*>();
+    QVERIFY(treeView);
+    const QPoint center(treeView->width() / 2, treeView->height() / 2);
+    QSignalSpy clickSpy(treeView, &TreeView::memberSelected);
+
+    // 模拟滚轮缩放：放大 6 次后缩小 3 次（离屏平台合成事件不转发，
+    // 直接调用事件处理器，与真实输入执行同一段代码）
+    const double scale0 = treeView->transform().m11();
+    for (int i = 0; i < 6; ++i) {
+        QWheelEvent e(QPointF(center), QPointF(center), QPoint(), QPoint(0, 120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        treeView->wheelEvent(&e);
+        QTest::qWait(30);
+    }
+    for (int i = 0; i < 3; ++i) {
+        QWheelEvent e(QPointF(center), QPointF(center), QPoint(), QPoint(0, -120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        treeView->wheelEvent(&e);
+        QTest::qWait(30);
+    }
+    QVERIFY2(treeView->transform().m11() > scale0 * 1.5, "滚轮缩放应已生效（相对初始缩放放大 1.2³≈1.73 倍）");
+
+    // 缩放后点击若干成员节点（陈建国 及深层的 陈清晨、配偶 奚秀兰）
+    for (const QString& name : {"陈建国", "陈清晨", "奚秀兰"}) {
+        const QPointF vp = treeView->viewportPosOf(name);
+        QMouseEvent press(QEvent::MouseButtonPress, vp, vp,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        treeView->mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease, vp, vp,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        treeView->mouseReleaseEvent(&release);
+        QTest::qWait(150);
+    }
+    QVERIFY2(clickSpy.count() > 0, "点击应触发 memberSelected 信号");
+    // 详情面板应已更新（未崩溃且功能正常）
+    auto* detail = w.findChild<QPlainTextEdit*>("detailPanel");
+    QVERIFY(detail);
+    QVERIFY2(!detail->toPlainText().isEmpty(), "点击后详情面板应有内容");
+    QVERIFY2(detail->toPlainText().contains("奚秀兰"), "详情面板应显示最后点击的成员");
+    w.grab().save(QDir::currentPath() + "/screenshots/zoom_click.png");
 }
 
 void TestUi::memberOps()

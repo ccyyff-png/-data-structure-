@@ -1,6 +1,9 @@
 #include "auth.h"
 #include <QSettings>
 #include <QCoreApplication>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
 #include <QCryptographicHash>
 
 static QString hashPassword(const QString& pwd)
@@ -20,7 +23,15 @@ static void seedIfNeeded(QSettings& settings)
 
 QString authFilePath()
 {
-    return QCoreApplication::applicationDirPath() + "/config.ini";
+    // 用户数据目录（%APPDATA%/jiapu），不依赖程序所在路径可写
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dir);
+    // 旧版本凭据文件（程序目录 config.ini）迁移
+    const QString legacy = QCoreApplication::applicationDirPath() + "/config.ini";
+    const QString current = dir + "/config.ini";
+    if (!QFile::exists(current) && QFile::exists(legacy))
+        QFile::copy(legacy, current);
+    return current;
 }
 
 QString currentUser(const QString& iniPath)
