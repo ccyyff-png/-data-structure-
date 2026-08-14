@@ -61,7 +61,13 @@ cmake --build build
 ./build/jiapu.exe
 ```
 
-打包分发：`windeployqt build/jiapu.exe --dir dist/jiapu`（连同 `build/jiapu/` 数据目录）。
+打包分发（一键脚本，自动补齐 MinGW 运行库依赖）：
+
+```bash
+bash tools/package.sh   # 产出 dist/jiapu（约 85MB，可直接分发）
+```
+
+> 注意：`windeployqt` 只复制 Qt 动态库，不会复制编译器运行库（`libstdc++-6.dll`、`libgcc_s_seh-1.dll` 等），直接打包会导致目标机器报"找不到 libstdc++-6.dll"。`tools/package.sh` 会自动扫描并补齐全部依赖。
 
 ## 测试
 
