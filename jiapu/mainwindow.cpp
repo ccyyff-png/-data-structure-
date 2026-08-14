@@ -3,6 +3,8 @@
 #include "treeview.h"
 #include "chartwidget.h"
 #include "memberdialog.h"
+#include "accountdialog.h"
+#include "auth.h"
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -106,15 +108,18 @@ void MainWindow::setupUi()
     QPushButton* searchBtn = new QPushButton("搜索");
     auto* spacer = new QWidget;
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    QPushButton* accountBtn = new QPushButton("账号设置");
     QPushButton* backBtn = new QPushButton("返回登录");
     QPushButton* quitBtn = new QPushButton("退出");
     bar->addWidget(m_searchEdit);
     bar->addWidget(searchBtn);
     bar->addWidget(spacer);
+    bar->addWidget(accountBtn);
     bar->addWidget(backBtn);
     bar->addWidget(quitBtn);
     connect(searchBtn, &QPushButton::clicked, this, &MainWindow::onSearch);
     connect(m_searchEdit, &QLineEdit::returnPressed, this, &MainWindow::onSearch);
+    connect(accountBtn, &QPushButton::clicked, this, &MainWindow::onAccountSettings);
     connect(backBtn, &QPushButton::clicked, this, &MainWindow::onBackToLogin);
     connect(quitBtn, &QPushButton::clicked, this, &QMainWindow::close);
 
@@ -188,12 +193,16 @@ void MainWindow::setupUi()
         auto* lay = new QVBoxLayout(m_memberPage);
         auto* btnRow = new QHBoxLayout;
         auto* btnAdd = new QPushButton("添加成员");
-        auto* btnDelete = new QPushButton("删除成员");
-        auto* btnRename = new QPushButton("重命名成员");
+        auto* btnEdit = new QPushButton("编辑成员");
+        auto* btnBatchRename = new QPushButton("批量改名");
+        auto* btnBatchDelete = new QPushButton("批量删除");
         btnRow->addWidget(btnAdd);
-        btnRow->addWidget(btnDelete);
-        btnRow->addWidget(btnRename);
+        btnRow->addWidget(btnEdit);
+        btnRow->addWidget(btnBatchRename);
+        btnRow->addWidget(btnBatchDelete);
         btnRow->addStretch();
+        auto* tip = new QLabel("提示：可按住 Ctrl / Shift 多选行进行批量操作；双击行可直接编辑成员。");
+        tip->setStyleSheet("color: #898781; font-size: 12px;");
         m_memberTable = new QTableWidget;
         m_memberTable->setColumnCount(7);
         m_memberTable->setHorizontalHeaderLabels(
@@ -204,14 +213,19 @@ void MainWindow::setupUi()
         m_memberTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         m_memberTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
         m_memberTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_memberTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_memberTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
         m_memberTable->verticalHeader()->setVisible(false);
         m_memberTable->setAlternatingRowColors(true);
         lay->addLayout(btnRow);
+        lay->addWidget(tip);
         lay->addWidget(m_memberTable, 1);
         connect(btnAdd, &QPushButton::clicked, this, &MainWindow::onAddMember);
-        connect(btnDelete, &QPushButton::clicked, this, &MainWindow::onDeleteMember);
-        connect(btnRename, &QPushButton::clicked, this, &MainWindow::onRenameMember);
+        connect(btnEdit, &QPushButton::clicked, this, &MainWindow::onEditMember);
+        connect(btnBatchRename, &QPushButton::clicked, this, &MainWindow::onBatchRename);
+        connect(btnBatchDelete, &QPushButton::clicked, this, &MainWindow::onBatchDelete);
+        connect(m_memberTable, &QTableWidget::cellDoubleClicked, this, [this](int, int) {
+            onEditMember();
+        });
     }
 
     // ---- 页面 4：二叉树结构（课设功能保留） ----
@@ -340,6 +354,28 @@ void MainWindow::onBackToLogin()
     close();   // 本窗口由登录窗口以 WA_DeleteOnClose 创建，关闭即销毁
 }
 
+void MainWindow::onAccountSettings()
+{
+    const QString iniPath = authFilePath();
+    AccountDialog dlg(currentUser(iniPath), this);
+    while (dlg.exec() == QDialog::Accepted) {   // 失败时重新弹出，输入得以保留
+        if (dlg.newPassword() != dlg.confirmPassword()) {
+            QMessageBox::warning(this, "提示", "两次输入的新密码不一致");
+            continue;
+        }
+        const QString err = changeCredentials(iniPath, currentUser(iniPath),
+                                              dlg.currentPassword(),
+                                              dlg.newUser(), dlg.newPassword());
+        if (!err.isEmpty()) {
+            QMessageBox::warning(this, "提示", err);
+            continue;
+        }
+        QMessageBox::information(this, "提示",
+            QString("账号已更新为「%1」，下次登录请使用新凭据").arg(dlg.newUser()));
+        return;
+    }
+}
+
 void MainWindow::onMemberSelected(const QString& name)
 {
     if (!m_data)
@@ -387,7 +423,7 @@ void MainWindow::onAddMember()
     }
 }
 
-void MainWindow::onDeleteMember()
+void MainWindow::onEditMember()
 {
     if (!m_data)
         return;
@@ -396,45 +432,119 @@ void MainWindow::onDeleteMember()
         QMessageBox::warning(this, "提示", "请先在表格中选择一名成员");
         return;
     }
-    const QString name = m_memberTable->item(row, 0)->text();
-    const int n = CountDescendants(*m_data, name);
-    const QString scope = n > 0 ? QString("及其后代共 %1 人，").arg(n + 1) : QString();
-    const auto res = QMessageBox::warning(this, "删除确认",
-        QString("将删除「%1」%2全部相关家谱记录，且不可恢复。确定？").arg(name, scope),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (res != QMessageBox::Yes)
+    const QString origName = m_memberTable->item(row, 0)->text();
+    const MemberInfo* info = FindMember(*m_data, origName);
+    if (!info)
         return;
-    const QString result = DeleteMember(m_data, name);
-    if (result.startsWith("已删除")) {
-        QMessageBox::information(this, "提示", result);
+    const QString origSpouse = info->spouse;
+    const QString origFather = info->father;
+    const bool isRoot = info->isRoot;
+
+    MemberEditDialog dlg(*info, this);
+    while (dlg.exec() == QDialog::Accepted) {   // 失败时重新弹出，输入得以保留
+        QString err;
+        QString memberName = origName;
+        if (dlg.newName() != memberName) {
+            err = RenameMember(m_data, memberName, dlg.newName());
+            memberName = err.isEmpty() ? dlg.newName() : memberName;
+        }
+        if (err.isEmpty() && dlg.newSpouse() != origSpouse) {
+            if (origSpouse.isEmpty())
+                err = QString("「%1」目前没有配偶，如需添加配偶请使用「添加成员」").arg(memberName);
+            else
+                err = RenameMember(m_data, origSpouse, dlg.newSpouse());
+        }
+        if (err.isEmpty() && !isRoot && dlg.newFather() != origFather)
+            err = ChangeFather(m_data, memberName, dlg.newFather());
+        if (!err.isEmpty()) {
+            QMessageBox::warning(this, "提示", err);
+            continue;
+        }
+        QMessageBox::information(this, "提示", "成员信息已更新！");
         persistAndRefresh();
-    } else {
-        QMessageBox::warning(this, "提示", result);
+        return;
     }
 }
 
-void MainWindow::onRenameMember()
+void MainWindow::onBatchDelete()
 {
     if (!m_data)
         return;
-    const int row = m_memberTable->currentRow();
-    if (row < 0 || !m_memberTable->item(row, 0)) {
-        QMessageBox::warning(this, "提示", "请先在表格中选择一名成员");
+    const QList<QTableWidgetItem*> items = m_memberTable->selectedItems();
+    if (items.isEmpty()) {
+        QMessageBox::warning(this, "提示", "请先在表格中选择要删除的成员（可 Ctrl/Shift 多选）");
         return;
     }
-    const QString oldName = m_memberTable->item(row, 0)->text();
+    QStringList names;
+    for (QTableWidgetItem* it : items) {
+        if (it->column() == 0 && !names.contains(it->text()))
+            names << it->text();
+    }
+    const auto res = QMessageBox::warning(this, "批量删除确认",
+        QString("将删除选中的 %1 名成员（含各自全部后代，级联），且不可恢复。确定？").arg(names.size()),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (res != QMessageBox::Yes)
+        return;
+
+    int okCount = 0;
+    QStringList skipped;
+    for (const QString& name : names) {
+        const QString r = DeleteMember(m_data, name);
+        if (r.startsWith("已删除"))
+            ++okCount;
+        else if (!r.contains("不存在"))   // 已被前面级联删除的成员不重复提示
+            skipped << r;
+    }
+    persistAndRefresh();
+    QString msg = QString("成功删除 %1 名成员（含后代）").arg(okCount);
+    if (!skipped.isEmpty())
+        msg += "\n跳过：" + skipped.join("；");
+    QMessageBox::information(this, "批量删除", msg);
+}
+
+void MainWindow::onBatchRename()
+{
+    if (!m_data)
+        return;
+    const QList<QTableWidgetItem*> items = m_memberTable->selectedItems();
+    if (items.isEmpty()) {
+        QMessageBox::warning(this, "提示", "请先在表格中选择要改名的成员（可 Ctrl/Shift 多选）");
+        return;
+    }
+    QStringList names;
+    for (QTableWidgetItem* it : items) {
+        if (it->column() == 0 && !names.contains(it->text()))
+            names << it->text();
+    }
     bool ok = false;
-    const QString newName = QInputDialog::getText(this, "重命名成员",
-        QString("将「%1」重命名为：").arg(oldName), QLineEdit::Normal, oldName, &ok);
+    const QString prefix = QInputDialog::getText(this, "批量改名",
+        QString("为选中的 %1 名成员添加姓名前缀（可留空）：").arg(names.size()),
+        QLineEdit::Normal, "", &ok);
     if (!ok)
         return;
-    const QString err = RenameMember(m_data, oldName, newName);
-    if (!err.isEmpty()) {
-        QMessageBox::warning(this, "提示", err);
+    const QString suffix = QInputDialog::getText(this, "批量改名",
+        "添加姓名后缀（可留空）：", QLineEdit::Normal, "", &ok);
+    if (!ok)
+        return;
+    if (prefix.isEmpty() && suffix.isEmpty()) {
+        QMessageBox::warning(this, "提示", "前缀与后缀不能同时为空");
         return;
     }
-    QMessageBox::information(this, "提示", QString("已将「%1」重命名为「%2」").arg(oldName, newName));
+
+    int okCount = 0;
+    QStringList skipped;
+    for (const QString& name : names) {
+        const QString err = RenameMember(m_data, name, prefix + name + suffix);
+        if (err.isEmpty())
+            ++okCount;
+        else
+            skipped << err;
+    }
     persistAndRefresh();
+    QString msg = QString("成功改名 %1 名成员").arg(okCount);
+    if (!skipped.isEmpty())
+        msg += "\n跳过：" + skipped.join("；");
+    QMessageBox::information(this, "批量改名", msg);
 }
 
 // ---------------- 刷新管线 ----------------

@@ -17,10 +17,15 @@ namespace {
 constexpr double NODE_W   = 120.0;   // 节点卡片宽
 constexpr double NODE_H   = 44.0;    // 节点卡片高
 constexpr double COUPLE_GAP = 16.0;  // 夫妻卡片间距
-constexpr double LEAF_GAP = 150.0;   // 相邻叶子槽位间距
+constexpr double LEAF_GAP = 300.0;   // 相邻叶子槽位间距（≥ 夫妻组宽 256 + 最小间距）
 constexpr double V_GAP    = 100.0;   // 行距（代际间距）
 constexpr double MIN_SUBTREE_GAP = 24.0;  // 兄弟子树最小间距
 constexpr double MARGIN   = 50.0;    // 场景四周留白
+
+// 家庭单元的卡片水平范围（以夫卡中心为原点，夫妻组左右不对称：
+// 夫卡左缘 -60，妻卡右缘 +60+16+120 = +196）
+inline double boxLeft()                 { return -NODE_W / 2; }
+inline double boxRight(bool hasWife)    { return hasWife ? NODE_W / 2 + COUPLE_GAP + NODE_W : NODE_W / 2; }
 
 const QColor MALE_COLOR(0x2a, 0x78, 0xd6);      // 男：蓝
 const QColor FEMALE_COLOR(0xe8, 0x7b, 0xa4);    // 女：粉
@@ -178,7 +183,10 @@ public:
         };
         buildUnit(data.rootName);
 
-        // 布局：后序叶槽位 → 前序重叠修正
+        // 布局（三趟）：
+        //  1. 后序叶槽位：无子女者依次占槽，有子女者取子女中点
+        //  2. 前序重叠修正：右移与前一兄弟子树重叠（按真实卡片范围）的子树
+        //  3. 后序重新居中：平移后按子女实际位置重算父节点与包围盒
         std::function<void(Unit*)> layout = [&](Unit* u) {
             if (u->children.empty()) {
                 u->x = m_slot++ * LEAF_GAP;
@@ -187,8 +195,7 @@ public:
                     layout(c);
                 u->x = (u->children.front()->x + u->children.back()->x) / 2.0;
             }
-            const double half = u->wife.isEmpty() ? NODE_W / 2 : NODE_W + COUPLE_GAP / 2;
-            double minX = u->x - half, maxX = u->x + half;
+            double minX = u->x + boxLeft(), maxX = u->x + boxRight(!u->wife.isEmpty());
             for (Unit* c : u->children) {
                 minX = std::min(minX, c->minX);
                 maxX = std::max(maxX, c->maxX);
@@ -212,9 +219,23 @@ public:
                 fixOverlaps(c);
             }
         };
+        std::function<void(Unit*)> recenter = [&](Unit* u) {
+            for (Unit* c : u->children)
+                recenter(c);
+            if (!u->children.empty())
+                u->x = (u->children.front()->x + u->children.back()->x) / 2.0;
+            double minX = u->x + boxLeft(), maxX = u->x + boxRight(!u->wife.isEmpty());
+            for (Unit* c : u->children) {
+                minX = std::min(minX, c->minX);
+                maxX = std::max(maxX, c->maxX);
+            }
+            u->minX = minX;
+            u->maxX = maxX;
+        };
         Unit* rootUnit = unitOf[data.rootName];
         layout(rootUnit);
         fixOverlaps(rootUnit);
+        recenter(rootUnit);
 
         // 创建节点与连线
         std::function<void(Unit*)> place = [&](Unit* u) {
@@ -351,6 +372,30 @@ public:
         return {};
     }
 
+    // 检测同行卡片是否相互遮挡（布局回归用），返回 "甲|乙" 形式的重叠对列表
+    QStringList overlappingPairs() const
+    {
+        QStringList result;
+        std::vector<QPair<QString, QPointF>> nodes;
+        for (const auto& [name, item] : m_husbandItems)
+            nodes.push_back({name, item->pos()});
+        for (const auto& [name, item] : m_wifeItems)
+            nodes.push_back({name, item->pos()});
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            for (size_t j = i + 1; j < nodes.size(); ++j) {
+                if (std::abs(nodes[i].second.y() - nodes[j].second.y()) > 0.5)
+                    continue;   // 不同行（不同代际）不视为遮挡
+                const double l1 = nodes[i].second.x() - NODE_W / 2;
+                const double r1 = l1 + NODE_W;
+                const double l2 = nodes[j].second.x() - NODE_W / 2;
+                const double r2 = l2 + NODE_W;
+                if (l1 < r2 - 0.5 && l2 < r1 - 0.5)
+                    result << QString("%1|%2").arg(nodes[i].first, nodes[j].first);
+            }
+        }
+        return result;
+    }
+
 signals:
     void memberClicked(const QString& name);
     void memberDoubleClicked(const QString& name);
@@ -413,6 +458,11 @@ void TreeView::centerOnNode(const QString& name)
     const QPointF pos = m_scene->nodePos(name);
     if (!pos.isNull())
         centerOn(pos);
+}
+
+QStringList TreeView::overlappingPairs() const
+{
+    return m_scene->overlappingPairs();
 }
 
 void TreeView::showEvent(QShowEvent* event)

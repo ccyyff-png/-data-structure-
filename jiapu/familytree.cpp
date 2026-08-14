@@ -516,6 +516,60 @@ QString RenameMember(FamData* d, const QString& oldName, const QString& newName)
     return {};
 }
 
+QString ChangeFather(FamData* d, const QString& member, const QString& newFather)
+{
+    auto it = d->members.find(member);
+    if (it == d->members.end())
+        return QString("成员「%1」不存在").arg(member);
+    if (it->second.isRoot)
+        return "不能修改家谱始祖的父亲";
+    const QString nf = newFather.trimmed();
+    if (nf.isEmpty())
+        return "新父亲不能为空";
+    if (nf == it->second.father)
+        return {};
+    auto nfIt = d->members.find(nf);
+    if (nfIt == d->members.end())
+        return QString("父亲「%1」不存在于家谱中").arg(nf);
+    if (nf == member)
+        return "父亲不能是本人";
+
+    // 防环：新父亲不能是 member 的后代
+    QSet<QString> descendants;
+    QQueue<QString> q;
+    q.enqueue(member);
+    while (!q.isEmpty()) {
+        const QString cur = q.dequeue();
+        auto m = d->members.find(cur);
+        if (m == d->members.end())
+            continue;
+        for (const QString& c : m->second.children) {
+            if (!descendants.contains(c)) {
+                descendants.insert(c);
+                q.enqueue(c);
+            }
+        }
+    }
+    if (descendants.contains(nf))
+        return QString("「%1」是「%2」的后代，不能作为其父亲（会形成循环）").arg(nf, member);
+
+    if (nfIt->second.spouse.isEmpty())
+        return QString("父亲「%1」尚无配偶记录，无法添加子女").arg(nf);
+
+    // 移除旧的亲子记录，添加新记录（母亲 = 新父亲的配偶）
+    auto& rs = d->records;
+    rs.erase(std::remove_if(rs.begin(), rs.end(), [&](const FamType& r) {
+        return QString::fromUtf8(r.son) == member;
+    }), rs.end());
+    FamType rec{};
+    qstrncpy(rec.father, nf.toUtf8().constData(), MaxSize);
+    qstrncpy(rec.wife, nfIt->second.spouse.toUtf8().constData(), MaxSize);
+    qstrncpy(rec.son, member.toUtf8().constData(), MaxSize);
+    rs.push_back(rec);
+    RebuildDerived(d);
+    return {};
+}
+
 int CountDescendants(const FamData& d, const QString& name)
 {
     auto it = d.members.find(name);

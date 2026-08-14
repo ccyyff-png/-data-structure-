@@ -29,12 +29,14 @@ private slots:
     void onNavChanged(int index);       // 切换页面
     void onMemberSelected(const QString& name);   // 树图点击成员 → 详情面板
     void onAddMember();                 // 成员管理：添加
-    void onDeleteMember();              // 成员管理：删除（级联）
-    void onRenameMember();              // 成员管理：重命名
+    void onEditMember();                // 成员管理：编辑（姓名/配偶/父亲）
+    void onBatchDelete();               // 成员管理：批量删除（多选，级联）
+    void onBatchRename();               // 成员管理：批量改名（前缀/后缀）
     void showBracketFormat();           // 二叉树结构页：括号表示法
     void showRecords();                 // 二叉树结构页：全部记录
     void showTextTree();                // 二叉树结构页：家谱文本树
     void onBackToLogin();               // 返回登录窗口
+    void onAccountSettings();           // 账号设置（修改用户名/密码）
 
 private:
     void setupUi();                     // 构建界面与样式

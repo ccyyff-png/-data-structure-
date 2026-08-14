@@ -13,11 +13,13 @@ set(CMAKE_AUTORCC ON)   # qt_standard_project_setup 未启用资源编译，显�
 qt_add_executable(jiapu WIN32
     main.cpp
     familytree.h familytree.cpp
+    auth.h auth.cpp
     login.h login.cpp login.ui
     mainwindow.h mainwindow.cpp
     treeview.h treeview.cpp
     chartwidget.h chartwidget.cpp
     memberdialog.h memberdialog.cpp
+    accountdialog.h accountdialog.cpp
     sorce.qrc
 )
 target_link_libraries(jiapu PRIVATE Qt6::Widgets)
@@ -26,6 +28,7 @@ target_link_libraries(jiapu PRIVATE Qt6::Widgets)
 enable_testing()
 qt_add_executable(tst_datalayer
     familytree.h familytree.cpp
+    auth.h auth.cpp
     tests/tst_datalayer.cpp
 )
 target_link_libraries(tst_datalayer PRIVATE Qt6::Test Qt6::Core)
@@ -38,11 +41,13 @@ add_test(NAME datalayer COMMAND tst_datalayer)
 # ---------------- UI 冒烟测试（离屏渲染截图） ----------------
 qt_add_executable(tst_ui
     familytree.h familytree.cpp
+    auth.h auth.cpp
     login.h login.cpp login.ui
     mainwindow.h mainwindow.cpp
     treeview.h treeview.cpp
     chartwidget.h chartwidget.cpp
     memberdialog.h memberdialog.cpp
+    accountdialog.h accountdialog.cpp
     tests/tst_ui.cpp
     sorce.qrc
 )

@@ -171,12 +171,20 @@ void HBarChartWidget::paintEvent(QPaintEvent*)
         QPainterPath path;
         path.addRoundedRect(bar, 4, 4);
         p.fillPath(path, BAR_BLUE);
-        // 数值
+        // 数值：条形足够宽时画在条内右端（白字），否则画在条外右侧
+        const QString valueText = QString::number(qRound(m_values[i])) + " 人";
         p.setFont(QFont("Microsoft YaHei UI", 9, QFont::Bold));
-        p.setPen(INK_SECONDARY);
-        p.drawText(QRectF(bar.right() + 6, cy - 10, 44, 20),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QString::number(qRound(m_values[i])) + " 人");
+        const QFontMetrics valueFm(p.font());
+        const double textW = valueFm.horizontalAdvance(valueText);
+        if (bar.width() > textW + 14) {
+            p.setPen(Qt::white);
+            p.drawText(QRectF(bar.right() - textW - 8, cy - 10, textW + 4, 20),
+                       Qt::AlignRight | Qt::AlignVCenter, valueText);
+        } else {
+            p.setPen(INK_SECONDARY);
+            p.drawText(QRectF(bar.right() + 6, cy - 10, textW + 4, 20),
+                       Qt::AlignLeft | Qt::AlignVCenter, valueText);
+        }
         p.setFont(baseFont());
     }
 }

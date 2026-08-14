@@ -5,6 +5,7 @@
 #include <QStringEncoder>
 #include <QStringDecoder>
 #include "familytree.h"
+#include "auth.h"
 
 // 数据层单元测试
 // 预期数值经独立脚本（Perl）复核：29 条记录、54 名成员（30 男 / 24 女）、11 代、
@@ -36,6 +37,7 @@ private slots:
     void deleteMemberRejects();
     void deleteMemberCascade();
     void renameMember();
+    void changeFather();
 
     // 二叉树课设函数
     void bracketFormat();
@@ -43,6 +45,10 @@ private slots:
 
     // 编码回退（旧 GBK 数据自动迁移）
     void gbkFallback();
+
+    // 账号认证
+    void authDefaults();
+    void authChangeCredentials();
 
 private:
     void reset();                    // 用原始数据重置临时文件并重新加载
@@ -304,6 +310,36 @@ void TestDataLayer::renameMember()
     QVERIFY(FindMember(*data, "陈清晨"));
 }
 
+void TestDataLayer::changeFather()
+{
+    // 成功：陈志华 自 陈永强 名下改挂到 陈永刚 名下，母亲随新父亲配偶
+    QVERIFY(ChangeFather(data, "陈志华", "陈永刚").isEmpty());
+    const MemberInfo* m = FindMember(*data, "陈志华");
+    QVERIFY(m);
+    QCOMPARE(m->father, QString("陈永刚"));
+    QCOMPARE(m->mother, QString("刘慧芳"));
+    QVERIFY(!FindMember(*data, "陈永强")->children.contains("陈志华"));
+    QVERIFY(FindMember(*data, "陈永刚")->children.contains("陈志华"));
+
+    // 拒绝路径
+    QVERIFY2(ChangeFather(data, "陈志华", "陈九千").contains("不存在于家谱"), "不存在的父亲应被拒绝");
+    QVERIFY(ChangeFather(data, "陈志华", "陈志华").contains("不能是本人"));
+    QVERIFY2(ChangeFather(data, "陈志华", "陈俊熙").contains("后代"), "新父亲是本人后代应被拒绝（防环）");
+    QVERIFY2(ChangeFather(data, "陈志华", "陈宇航").contains("尚无配偶"), "无配偶者不能当父亲");
+    QVERIFY2(ChangeFather(data, "陈鼎元", "陈建国").contains("始祖"), "始祖父亲不可改");
+
+    // 落盘并重载，改挂持久
+    QVERIFY(SaveFamilyData(filePath, *data));
+    QString msg;
+    FamData* reloaded = LoadFamilyData(filePath, &msg);
+    QVERIFY2(reloaded != nullptr, qPrintable(msg));
+    QCOMPARE(FindMember(*reloaded, "陈志华")->father, QString("陈永刚"));
+    QCOMPARE(static_cast<int>(reloaded->members.size()), 54);
+    QCOMPARE(static_cast<int>(reloaded->records.size()), 29);
+    FreeFamData(reloaded);
+    reset();
+}
+
 void TestDataLayer::bracketFormat()
 {
     const QString bracket = DispTreeInBracketFormat(data->tree);
@@ -327,6 +363,32 @@ void TestDataLayer::textTree()
 
     const QString recordsText = RecordsToText(*data);
     QVERIFY(recordsText.contains("陈鼎元,奚秀兰,陈建国"));
+}
+
+void TestDataLayer::authDefaults()
+{
+    const QString ini = dir.filePath("auth_test.ini");
+    // 首次运行自动播种 admin / 12345
+    QVERIFY(verifyPassword(ini, "admin", "12345"));
+    QVERIFY(!verifyPassword(ini, "admin", "wrong"));
+    QVERIFY(!verifyPassword(ini, "nobody", "12345"));
+    QCOMPARE(currentUser(ini), QString("admin"));
+}
+
+void TestDataLayer::authChangeCredentials()
+{
+    const QString ini = dir.filePath("auth_test.ini");
+    // 当前密码错误 → 拒绝
+    QVERIFY2(changeCredentials(ini, "admin", "wrong", "root", "abc").contains("当前密码错误"),
+             "错误密码应被拒绝");
+    // 空字段拒绝
+    QVERIFY(changeCredentials(ini, "admin", "12345", "", "abc").contains("新用户名不能为空"));
+    QVERIFY(changeCredentials(ini, "admin", "12345", "root", "").contains("新密码不能为空"));
+    // 正常修改并持久化
+    QVERIFY(changeCredentials(ini, "admin", "12345", "root", "abc123").isEmpty());
+    QVERIFY(verifyPassword(ini, "root", "abc123"));
+    QVERIFY(!verifyPassword(ini, "admin", "12345"));   // 旧凭据失效
+    QCOMPARE(currentUser(ini), QString("root"));
 }
 
 void TestDataLayer::gbkFallback()

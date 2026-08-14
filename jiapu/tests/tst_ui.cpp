@@ -4,9 +4,12 @@
 #include <QStackedWidget>
 #include <QListWidget>
 #include <QLineEdit>
+#include <QLabel>
+#include <QPushButton>
 #include <QImage>
 #include "login.h"
 #include "mainwindow.h"
+#include "treeview.h"
 
 // UI 冒烟测试：离屏渲染（QT_QPA_PLATFORM=offscreen）各页面，截图保存到 build/screenshots，
 // 并通过像素颜色断言验证关键渲染结果（树图节点配色/图表柱体/搜索高亮）。
@@ -53,6 +56,17 @@ void TestUi::loginWindow()
     w.show();
     QTest::qWait(300);
     QVERIFY(!w.grab().isNull());
+
+    // 回归：窗口缩放时背景图与表单应同步（背景随布局拉伸、表单重新居中）
+    auto* bg = w.findChild<QLabel*>("label_background");
+    auto* loginBtn = w.findChild<QPushButton*>("pushButton");
+    QVERIFY(bg && loginBtn);
+    const int bgW = bg->width();
+    const int btnX = loginBtn->x();
+    w.resize(1500, 820);
+    QTest::qWait(200);
+    QVERIFY2(bg->width() > bgW, "窗口放大后背景未同步拉伸");
+    QVERIFY2(loginBtn->x() > btnX, "窗口放大后表单未同步右移居中");
     w.grab().save(QDir::currentPath() + "/screenshots/login.png");
 }
 
@@ -77,6 +91,12 @@ void TestUi::mainWindowPages()
             // 家谱树页：必须渲染出蓝色男节点与粉色女节点卡片
             QVERIFY2(countColor(shot, QColor(0x2a, 0x78, 0xd6)) > 200, "树图男性节点未渲染");
             QVERIFY2(countColor(shot, QColor(0xe8, 0x7b, 0xa4)) > 200, "树图女性节点未渲染");
+            // 回归：同行卡片不得相互遮挡
+            const auto* treeView = w.findChild<TreeView*>();
+            QVERIFY(treeView);
+            const QStringList overlaps = treeView->overlappingPairs();
+            QVERIFY2(overlaps.isEmpty(),
+                     qPrintable("树图存在重叠卡片: " + overlaps.join(", ")));
         }
         if (i == 1) {
             // 统计页：蓝色柱体（每代人数）+ 绿色柱体（子女分布）
@@ -100,8 +120,8 @@ void TestUi::searchAndSelect()
     const QImage shot = w.grab().toImage();
     QVERIFY(!shot.isNull());
     shot.save(QDir::currentPath() + "/screenshots/search_jun.png");
-    // 搜索命中节点应出现橙色高亮描边
-    QVERIFY2(countColor(shot, QColor(0xeb, 0x68, 0x34)) > 50, "搜索高亮未渲染");
+    // 搜索命中节点应出现橙色高亮描边（描边细且抗锯齿，放宽容差统计）
+    QVERIFY2(countColor(shot, QColor(0xeb, 0x68, 0x34), 2, 45) > 20, "搜索高亮未渲染");
 }
 
 void TestUi::memberOps()

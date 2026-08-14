@@ -105,6 +105,9 @@ QString AddMember(FamData* d, const QString& father, const QString& wife, const 
 QString DeleteMember(FamData* d, const QString& name);
 // 重命名成员（同步更新所有记录中的三列）
 QString RenameMember(FamData* d, const QString& oldName, const QString& newName);
+// 修改成员的父亲（删除旧亲子记录，挂到新父亲名下；母亲随新父亲的配偶）
+// 校验：新父亲存在、非本人、非本人后代（防环）、有新配偶
+QString ChangeFather(FamData* d, const QString& member, const QString& newFather);
 // 某成员的血亲后代数量（不含本人，删除确认框用）
 int CountDescendants(const FamData& d, const QString& name);
 

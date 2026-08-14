@@ -4,6 +4,8 @@
 #include <QWidget>
 #include <QStringList>
 #include <QTimer>
+#include <QVector>
+#include <QPair>
 
 namespace Ui {
 class login;
@@ -18,6 +20,9 @@ public:
     explicit login(QWidget *parent = nullptr);
     ~login();
 
+protected:
+    void resizeEvent(QResizeEvent* event) override;   // 表单随窗口缩放重新居中
+
 private slots:
     void on_pushButton_clicked();   // 登录按钮（也响应输入框回车）
     void on_pushButton_2_clicked(); // 退出按钮
@@ -29,8 +34,8 @@ private:
     QStringList bgPics;
     int currentPicIndex;
     void setNextPixmap();
-    // 校验账号密码（SHA-256 哈希存储于 config.ini，首次运行自动播种 admin/12345）
-    static bool verifyPassword(const QString& user, const QString& pwd);
+    // 表单组件的原始 X 坐标（.ui 按 1291 宽设计），缩放时按中心偏移重定位
+    QVector<QPair<QWidget*, int>> m_formOrigX;
 };
 
 #endif // LOGIN_H

@@ -33,6 +33,8 @@ public:
     void clearHighlights();
     // 将指定成员节点居中
     void centerOnNode(const QString& name);
+    // 同行卡片重叠对列表（布局回归测试用，正常应为空）
+    QStringList overlappingPairs() const;
 
 signals:
     void memberSelected(const QString& name);
