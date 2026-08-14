@@ -7,6 +7,13 @@
 #include <QDir>
 #include <windows.h>
 
+#ifdef QT_STATIC
+// 静态链接 Qt（单文件发布版）：显式导入所需插件
+#include <QtPlugin>
+Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+Q_IMPORT_PLUGIN(QJpegPlugin)
+#endif
+
 // 全局崩溃处理器：记录异常码与指令地址（RVA，配合调试符号可用 addr2line 定位）
 static LONG WINAPI crashHandler(EXCEPTION_POINTERS* ep)
 {

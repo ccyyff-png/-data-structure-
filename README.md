@@ -2,14 +2,14 @@
 
 基于 **Qt 6 / C++17** 的桌面家谱管理应用，以「左孩子-右兄弟」式**二叉树**为核心数据结构（数据结构课程设计），并在此基础上构建了成员索引层、可视化树形图、统计图表与完整的增删改查管线。
 
-> 原项目为 Qt 5 课设初版；本仓库为重构升级版：修复全部已知缺陷、迁移 Qt 6 + CMake、新增数据可视化与成员管理，并配备 28 项自动化测试。
+> 原项目为 Qt 5 课设初版；本仓库为重构升级版：修复全部已知缺陷、迁移 Qt 6 + CMake、新增数据可视化与成员管理，并配备 29 项自动化测试。
 
 ## 功能特性
 
 - **家谱树可视化**：基于 `QGraphicsView` 自研渲染引擎，54 人 11 代家谱树一键呈现
   - 夫妻同层卡片（男蓝 / 女粉 + 代际角标），正交连线 + 婚姻连线
   - 滚轮缩放（锚定光标，0.1x~4x）、拖拽平移、单击查看成员详情、双击居中
-  - 叶槽位布局算法（后序分配 + 前序重叠修正），任意规模不重叠
+  - 叶槽位布局算法（后序分配 + 前序重叠修正 + 重新居中），任意规模不重叠
 - **统计分析**：QPainter 自绘图表（零第三方图表库依赖）
   - KPI 卡片：总人数 / 代数 / 最长支系 / 子女最多
   - 每代人数分布、子女数量分布、支系人数 Top-5、最长支系路径
@@ -17,8 +17,9 @@
   - 添加成员（六重校验）、**编辑成员**（直观修改姓名/配偶/父亲，改挂关系防环校验）
   - **批量操作**：Ctrl/Shift 多选 → 批量删除（级联）、批量改名（前缀/后缀）
 - **模糊搜索**：姓名包含匹配，命中节点在树图中高亮并自动定位
-- **数据持久化**：UTF-8 CSV 文本存储；自动迁移旧版 GBK 数据文件
 - **账号系统**：SHA-256 密码哈希（`config.ini`），回车快捷登录；登录后可在「账号设置」中修改用户名与密码
+- **数据持久化**：UTF-8 CSV 文本存储于 `%APPDATA%/jiapu`（不依赖程序所在路径）；自动迁移旧版 GBK 数据文件
+- **健壮性**：全局崩溃日志（`%APPDATA%/jiapu/crash.log`，记录异常码与指令地址，配合调试符号可定位源码行）
 - **登录界面**：背景轮播；窗口缩放时背景与表单同步缩放居中
 - **课设功能保留**：「二叉树结构」页输出括号表示法、全部记录与家谱文本树
 
@@ -59,18 +60,22 @@ pacman -S --needed base-devel mingw-w64-ucrt-x86_64-toolchain \
   mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-qt6-base
 
 export PATH=/ucrt64/bin:$PATH
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ./build/jiapu.exe
 ```
 
-打包分发（一键脚本，自动补齐 MinGW 运行库依赖）：
+## 发布
+
+**便携文件夹**（推荐，一键脚本，自动补齐 MinGW 运行库依赖）：
 
 ```bash
-bash tools/package.sh   # 产出 dist/jiapu（约 85MB，可直接分发）
+bash tools/package.sh   # 产出 dist/jiapu（约 85MB，整个文件夹拷贝即用）
 ```
 
 > 注意：`windeployqt` 只复制 Qt 动态库，不会复制编译器运行库（`libstdc++-6.dll`、`libgcc_s_seh-1.dll` 等），直接打包会导致目标机器报"找不到 libstdc++-6.dll"。`tools/package.sh` 会自动扫描并补齐全部依赖。
+
+**单文件 exe**：`tools/package_singlefile.sh` 为实验性脚本（Enigma Virtual Box 虚拟化打包）。当前存在已知兼容性问题：Enigma 11.30 对 Qt 6.11 的文件服务会导致程序启动挂起（虚拟模式下依赖解析失败、写盘模式下 qwindows 平台插件初始化挂起，已通过空文件表对照实验定位为 Enigma 文件服务层问题，等待其新版本修复）。静态链接 Qt（`CMakeLists.txt` 中 `QT6_STATIC_PREFIX` 分支）为替代路线，构建至链接阶段。
 
 ## 测试
 
@@ -81,9 +86,9 @@ ctest --test-dir build --output-on-failure
 | 测试 | 覆盖 |
 |---|---|
 | `tst_datalayer`（22 项） | 数据加载/统计（54人、11代、支系等断言）、祖先/子女查询、增删改全部校验路径（幽灵记录、重名、逗号、母亲不一致、改父亲防环等回归）、GBK 旧文件自动迁移、账号认证（默认凭据/改密校验/持久化）、括号表示法、内存释放 |
-| `tst_ui`（6 项） | 离屏渲染冒烟：四页截图 + 像素颜色断言（树图男女节点、图表柱体、搜索高亮、成员表格）+ 树图同行卡片零遮挡断言 + 登录窗口缩放同步断言 |
+| `tst_ui`（7 项） | 离屏渲染冒烟：四页截图 + 像素颜色断言（树图男女节点、图表柱体、搜索高亮、成员表格）+ 树图同行卡片零遮挡断言 + 缩放后点击零崩溃断言 + 登录窗口缩放同步断言 |
 
-默认账号：`admin` / `12345`（密码仅存 SHA-256 哈希，首运行自动播种至 `config.ini`）。
+默认账号：`admin` / `12345`（密码仅存 SHA-256 哈希，首运行自动播种至 `%APPDATA%/jiapu/config.ini`）。
 
 ## 数据格式
 
@@ -110,8 +115,10 @@ ctest --test-dir build --output-on-failure
 | 添加记录无校验（幽灵记录/逗号破坏 CSV/重复） | 六重校验 + 中文错误提示 |
 | 同名双节点致查找祖先/后代错乱 | 数据清洗 + 加载时冲突检测 |
 | 树节点内存泄漏 | `FreeTree` / `FreeFamData` |
+| 家谱树成员卡片相互遮挡 | 布局包围盒修正（非对称夫妻组）+ 三趟布局（叶槽位→重叠修正→重新居中），含零遮挡回归断言 |
+| 缩放后点击闪退 | 移除节点 tooltip（Qt Windows 已知崩溃源）、滚动条按需显示、NaN 变换防护、崩溃日志定位 |
 | `qt_standard_project_setup` 未启用 AUTORCC（资源丢失） | 显式 `CMAKE_AUTORCC ON` |
 
 ## 技术栈
 
-Qt 6.11 Widgets ・ C++17 ・ CMake/Ninja ・ QGraphicsView 自绘图形引擎 ・ QPainter 自绘图表 ・ QtTest 自动化测试（28 项）
+Qt 6.11 Widgets ・ C++17 ・ CMake/Ninja ・ QGraphicsView 自绘图形引擎 ・ QPainter 自绘图表 ・ QtTest 自动化测试（29 项）
